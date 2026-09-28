@@ -20,7 +20,7 @@ Model names in the mi-triton repository (scripts/phase2_setup.sh):
   s3_crop, s3_frame                stage 3 at 384 / 800
 
 Run on the host, under the GPU lock (scripts/phase2_run.sh holds it).
-Usage: python3 scripts/phase2_sweep.py A|B [--duration 15] [--repeats 3]
+Usage: python3 scripts/phase2_sweep.py A|B|C [--duration 15] [--repeats 3]
 
 PREDICTIONS (written 2026-09-28, before the server or client had run; from the
 engine rows of Phases 1a and 1c)
@@ -52,6 +52,25 @@ K=16 ~9.6 ms, so ~1.9 / 3.7 / 10.6 ms per frame. At 30 fps a camera offers
       (First check: does Triton 24.12 turn the setting into stream priority?)
   B4  Frame input (800) costs ~3x a crop (384), so at the same p it skips
       ~3x as often and hurts the fast path more.
+
+PHASE 3, SWEEP C (written 2026-09-28, after sweeps A and B, before C ran)
+
+Sweep B showed the slot pool does not protect the line: at 8 cameras no slot
+filled and the line collapsed anyway. C gives stage 3 a GPU-time budget (a
+token bucket charged with Phase 1c's measured cost: 9.43 ms a crop, 29.60 ms a
+frame); flags beyond it are shed and counted. K = 4, priority off; cameras
+4/8 x p 5/20% x crop/frame x budget none/10/20/40% x 3 repeats = 96 runs.
+From sweep A the fast path alone uses ~41% of the GPU at 4 cameras and ~82% at 8.
+
+  C1  At 8 cameras a 10% budget prevents the collapse at every p and input:
+      >= 95% of frames delivered, where sweep B collapsed at p >= 5%.
+  C2  Budgets above the headroom bring it back: at 8 cameras 20% is at the edge
+      and 40% collapses; at 4 cameras every budget holds.
+  C3  A budget fixes the collapse, not the tail: whenever frames are admitted
+      (800 input), fast-path p99 stays >= ~30 ms at 4 cameras, one stage-3
+      execution above the no-stage-3 p99, whatever the budget.
+  C4  Stage 3 is served at ~budget/cost: ~10.6/s crops or ~3.4/s frames per
+      10% (within 15%), and explain latency falls from seconds to tens of ms.
 """
 import argparse
 import itertools
@@ -71,6 +90,16 @@ def configs(sweep):
         for cams, k, db in itertools.product((1, 4, 8, 16), (1, 4, 16), ("off", "db0")):
             yield dict(streams=cams, k=k, batching=db, stage1="yolov8s",
                        stage2="s2_db0" if db == "db0" else "s2", stage3="none", p=0.0)
+    elif sweep == "C":
+        # Phase 3: stage 3 under a GPU-time budget. Costs are Phase 1c's measured
+        # GPU medians for Grounding DINO-T, 10 phrases, text cached.
+        for cams, p, s3in, budget in itertools.product((4, 8), (0.05, 0.20), ("crop", "frame"),
+                                                       (0.0, 0.10, 0.20, 0.40)):
+            yield dict(streams=cams, k=4, p=p, priority="off", s3_input=s3in, budget=budget,
+                       stage1="yolov8s", stage2="s2",
+                       stage3="s3_crop" if s3in == "crop" else "s3_frame",
+                       s3_size=384 if s3in == "crop" else 800,
+                       s3_cost_ms=9.43 if s3in == "crop" else 29.60)
     else:
         for cams, p, prio, s3in in itertools.product((4, 8), (0.0, 0.01, 0.05, 0.20), ("off", "on"),
                                                      ("crop", "frame")):
@@ -96,6 +125,8 @@ def run_one(c, duration, seed):
                     "--p", str(c["p"]), "--duration", str(duration), "--seed", str(seed)]
     if c["stage3"] != "none":
         cmd += ["--s3-input", c["s3_input"], "--s3-size", str(c["s3_size"])]
+    if c.get("budget"):
+        cmd += ["--s3-budget", str(c["budget"]), "--s3-cost-ms", str(c["s3_cost_ms"])]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 120)
     line = [l for l in r.stdout.splitlines() if l.startswith("{")]
     if r.returncode != 0 or not line:
@@ -105,7 +136,7 @@ def run_one(c, duration, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("sweep", choices=["A", "B"])
+    ap.add_argument("sweep", choices=["A", "B", "C"])
     ap.add_argument("--duration", type=float, default=15)
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--pause", type=float, default=3)
@@ -128,9 +159,10 @@ def main():
                 print("[%d/%d] rep%d %s -> %s" % (
                     n, total, rep, " ".join("%s=%s" % kv for kv in c.items() if kv[0] not in ("stage1", "stage2", "stage3")),
                     "ERROR " + r["error"][-120:] if "error" in r else
-                    "fps %.1f fast p50 %.2f p99 %.2f late %d s3 %d/%d skip %d explain p50 %.1f"
+                    "fps %.1f fast p50 %.2f p99 %.2f late %d s3 %d/%d skip %d shed %d explain p50 %.1f"
                     % (r["fps"], r["fast_ms_p50"], r["fast_ms_p99"], r["late_frames"],
-                       r["s3_done"], r["s3_sent"], r["s3_skipped"], r["explain_ms_p50"])), flush=True)
+                       r["s3_done"], r["s3_sent"], r["s3_skipped"], r.get("s3_shed", 0),
+                       r["explain_ms_p50"])), flush=True)
                 time.sleep(a.pause)
 
 

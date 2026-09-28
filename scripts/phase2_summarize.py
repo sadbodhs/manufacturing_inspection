@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Turn results/phase2_sweep{A,B}.jsonl into per-configuration medians.
+"""Turn results/phase2_sweep{A,B,C}.jsonl into per-configuration medians.
 
 Each configuration ran 3 times in an interleaved order; this reports the
 median of each metric across the repeats, plus the spread of the fast-path
 p99 (min-max), and flags any run that errored or delivered less than 95% of
 the offered frames (overloaded: its latencies are backlog, not service time).
 
-Usage: python3 scripts/phase2_summarize.py [A] [B]
-Output: results/phase2_sweepA.tsv, results/phase2_sweepB.tsv
+Usage: python3 scripts/phase2_summarize.py [A] [B] [C]
+Output: results/phase2_sweep{A,B,C}.tsv
 """
 import json
 import os
@@ -17,13 +17,14 @@ from collections import defaultdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEYS = {"A": ["streams", "k", "batching"],
-        "B": ["streams", "p", "priority", "s3_input"]}
+        "B": ["streams", "p", "priority", "s3_input"],
+        "C": ["streams", "p", "s3_input", "budget"]}
 METRICS = ["fps", "fast_ms_p50", "fast_ms_p95", "fast_ms_p99", "late_frames",
-           "flagged", "s3_sent", "s3_done", "s3_skipped", "explain_ms_p50", "explain_ms_p99"]
+           "flagged", "s3_sent", "s3_done", "s3_skipped", "s3_shed", "explain_ms_p50", "explain_ms_p99"]
 
 
 def main():
-    for sweep in (sys.argv[1:] or ["A", "B"]):
+    for sweep in (sys.argv[1:] or ["A", "B", "C"]):
         src = os.path.join(ROOT, "results", "phase2_sweep%s.jsonl" % sweep)
         if not os.path.exists(src):
             continue
@@ -40,7 +41,7 @@ def main():
                               ["delivered_pct", "overloaded", "skip_pct", "fast_p99_min", "fast_p99_max"]) + "\n")
             for key in sorted(groups):
                 rs = groups[key]
-                med = {m: statistics.median(r[m] for r in rs) for m in METRICS}
+                med = {m: statistics.median(r.get(m, 0) for r in rs) for m in METRICS}
                 offered = rs[0]["offered_fps"]
                 delivered = 100.0 * med["fps"] / offered
                 skip = 100.0 * med["s3_skipped"] / med["flagged"] if med["flagged"] else 0.0

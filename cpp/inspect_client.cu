@@ -176,6 +176,7 @@ struct Opts {
   std::string file = "frames.bin", s3_input = "crop", phase = "random";
   int streams = 1, k = 4, s2_size = 256, s3_size = 384, s3_slots = 4;
   double fps = 30, duration = 15, warmup = 1, p = 0;
+  double s3_budget = 0, s3_cost_ms = 0;   // Phase 3: stage-3 share of GPU time (0 = no budget)
   unsigned seed = 1;
 };
 
@@ -183,8 +184,32 @@ struct Stats {
   std::mutex mtx;
   std::vector<double> fast, explain;
   double t_s1 = 0, t_crop = 0, t_s2 = 0; long n = 0;
-  std::atomic<long> frames{0}, late{0}, flagged{0}, s3_sent{0}, s3_done{0}, s3_skipped{0}, dets{0};
+  std::atomic<long> frames{0}, late{0}, flagged{0}, s3_sent{0}, s3_done{0}, s3_skipped{0}, s3_shed{0}, dets{0};
 };
+
+// Phase 3: admission control for stage 3 by GPU time. One token bucket shared
+// by every camera, filled with milliseconds of GPU time at s3_budget x 1000 ms
+// per second, capped at 100 ms of wall time's worth (at least one request).
+// A flagged crop must pay its measured stage-3 cost (Phase 1c) before it is
+// sent; if it cannot, it is SHED and counted. Unlike the slot pool, this bounds
+// stage 3's share of the GPU whatever the fast path is doing.
+struct Budget {
+  std::mutex m;
+  bool on = false;
+  double rate_ms_per_s = 0, cap_ms = 0, tokens_ms = 0;
+  clk::time_point last = clk::now();
+  bool take(double cost) {
+    if (!on) return true;
+    std::lock_guard<std::mutex> lk(m);
+    auto now = clk::now();
+    tokens_ms = std::min(cap_ms, tokens_ms + rate_ms_per_s * std::chrono::duration<double>(now - last).count());
+    last = now;
+    if (tokens_ms < cost) return false;
+    tokens_ms -= cost;
+    return true;
+  }
+};
+static Budget g_budget;
 
 struct S3Slot {
   std::atomic<bool> busy{false};
@@ -339,6 +364,7 @@ static void run_camera(const Opts o, int cam, clk::time_point t_start, Stats* st
       for (int j = 0; j < o.k; ++j) {
         if (u01(o.seed, cam, k, j, 4) >= o.p) continue;
         if (rec) st->flagged++;
+        if (!g_budget.take(o.s3_cost_ms)) { if (rec) st->s3_shed++; continue; }
         S3Slot* free_slot = nullptr; int si = -1;
         for (int s = 0; s < o.s3_slots; ++s) {
           bool expect = false;
@@ -421,6 +447,8 @@ int main(int argc, char** argv) {
     else if (a == "--s2-size") o.s2_size = std::stoi(nx());
     else if (a == "--s3-size") o.s3_size = std::stoi(nx());
     else if (a == "--s3-slots") o.s3_slots = std::stoi(nx());
+    else if (a == "--s3-budget") o.s3_budget = std::stod(nx());
+    else if (a == "--s3-cost-ms") o.s3_cost_ms = std::stod(nx());
     else if (a == "--fps") o.fps = std::stod(nx());
     else if (a == "--duration") o.duration = std::stod(nx());
     else if (a == "--warmup") o.warmup = std::stod(nx());
@@ -428,6 +456,13 @@ int main(int argc, char** argv) {
     else if (a == "--seed") o.seed = (unsigned)std::stoul(nx());
   }
   if (o.stage2.empty()) { std::cerr << "--stage2 <model> is required" << std::endl; return 2; }
+  if (o.s3_budget > 0) {
+    if (o.s3_cost_ms <= 0) { std::cerr << "--s3-budget needs --s3-cost-ms" << std::endl; return 2; }
+    g_budget.on = true;
+    g_budget.rate_ms_per_s = o.s3_budget * 1000.0;
+    g_budget.cap_ms = std::max(o.s3_cost_ms, 0.1 * g_budget.rate_ms_per_s);
+    g_budget.tokens_ms = g_budget.cap_ms;
+  }
   if (o.s3_input != "crop" && o.s3_input != "frame") { std::cerr << "--s3-input crop|frame" << std::endl; return 2; }
   {
     std::ifstream f(o.file, std::ios::binary);
@@ -450,14 +485,14 @@ int main(int argc, char** argv) {
          "\"streams\":%d,\"k\":%d,\"s2_size\":%d,\"p\":%.3f,\"s3_input\":\"%s\",\"s3_size\":%d,"
          "\"fps_per_camera\":%.1f,\"offered_fps\":%.1f,\"frames\":%ld,\"fps\":%.2f,\"late_frames\":%ld,"
          "\"fast_ms_p50\":%.3f,\"fast_ms_p95\":%.3f,\"fast_ms_p99\":%.3f,\"fast_ms_max\":%.3f,"
-         "\"flagged\":%ld,\"s3_sent\":%ld,\"s3_done\":%ld,\"s3_skipped\":%ld,"
+         "\"flagged\":%ld,\"s3_sent\":%ld,\"s3_done\":%ld,\"s3_skipped\":%ld,\"s3_shed\":%ld,\"s3_budget\":%.3f,"
          "\"explain_ms_p50\":%.3f,\"explain_ms_p95\":%.3f,\"explain_ms_p99\":%.3f,"
          "\"stages_ms\":{\"stage1\":%.3f,\"crop\":%.3f,\"stage2\":%.3f},\"seed\":%u,\"phase\":\"%s\"}\n",
          o.stage1.c_str(), o.stage2.c_str(), o.stage3.c_str(), o.streams, o.k, o.s2_size, o.p,
          o.s3_input.c_str(), o.s3_size, o.fps, o.fps * o.streams, st.frames.load(),
          st.frames.load() / elapsed, st.late.load(),
          pct(st.fast, 0.5), pct(st.fast, 0.95), pct(st.fast, 0.99), st.fast.empty() ? 0 : st.fast.back(),
-         st.flagged.load(), st.s3_sent.load(), st.s3_done.load(), st.s3_skipped.load(),
+         st.flagged.load(), st.s3_sent.load(), st.s3_done.load(), st.s3_skipped.load(), st.s3_shed.load(), o.s3_budget,
          pct(st.explain, 0.5), pct(st.explain, 0.95), pct(st.explain, 0.99),
          st.t_s1 / sn, st.t_crop / sn, st.t_s2 / sn, o.seed, o.phase.c_str());
   return 0;
