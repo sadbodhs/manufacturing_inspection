@@ -1,0 +1,4 @@
+model	input	batch	weights	output	in_bytes	out_bytes	params	reps	qps	gpu_ms	h2d_ms	d2h_ms	non_engine_ms	transport_pct	gpu_ms_per_frame	total_ms_per_frame	gpu_ms_min	gpu_ms_max
+sam_b_zoo_graph_pretrained	1x3x1024x1024	1	pretrained	1x256x64x64	12582912	4194304	89670918	3	53.0	18.7476	0.4886	0.1696	0.6582	3.39	18.7476	19.4058	18.6586	18.7874
+sam_b_zoo_graph_randomized	1x3x1024x1024	1	random	1x256x64x64	12582912	4194304	89670918	3	53.1	18.7075	0.4880	0.1695	0.6575	3.40	18.7075	19.3650	18.6688	18.7652
+sam_b_phase0_graph	1x3x1024x1024	1	random	1x256x64x64	12582912	4194304	89670912	3	58.5	17.0038	0.4872	0.1671	0.6543	3.71	17.0038	17.6581	16.9655	17.0257

@@ -1,0 +1,10 @@
+tag	model	size	batch	weights	rep	qps	gpu_ms	h2d_ms	d2h_ms	latency_ms	output
+sam_b_zoo_graph_pretrained_1024_b1	sam_b_zoo_graph_pretrained	1024	1	pretrained	1	53.3	18.6586	0.4908	0.1696	19.3190	1x256x64x64
+sam_b_zoo_graph_randomized_1024_b1	sam_b_zoo_graph_randomized	1024	1	random	1	53.2	18.6688	0.4887	0.1697	19.3272	1x256x64x64
+sam_b_phase0_graph_1024_b1	sam_b_phase0_graph	1024	1	random	1	58.6	16.9655	0.4863	0.1672	17.6191	1x256x64x64
+sam_b_zoo_graph_randomized_1024_b1	sam_b_zoo_graph_randomized	1024	1	random	2	53.1	18.7075	0.4880	0.1695	19.3650	1x256x64x64
+sam_b_phase0_graph_1024_b1	sam_b_phase0_graph	1024	1	random	2	58.5	17.0038	0.4883	0.1670	17.6591	1x256x64x64
+sam_b_zoo_graph_pretrained_1024_b1	sam_b_zoo_graph_pretrained	1024	1	pretrained	2	53.0	18.7476	0.4883	0.1696	19.4055	1x256x64x64
+sam_b_phase0_graph_1024_b1	sam_b_phase0_graph	1024	1	random	3	58.4	17.0257	0.4872	0.1671	17.6801	1x256x64x64
+sam_b_zoo_graph_pretrained_1024_b1	sam_b_zoo_graph_pretrained	1024	1	pretrained	3	52.9	18.7874	0.4886	0.1695	19.4455	1x256x64x64
+sam_b_zoo_graph_randomized_1024_b1	sam_b_zoo_graph_randomized	1024	1	random	3	53.0	18.7652	0.4880	0.1695	19.4227	1x256x64x64

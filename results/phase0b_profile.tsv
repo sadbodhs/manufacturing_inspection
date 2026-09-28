@@ -1,0 +1,8 @@
+category	b1_ms_per_image	b8_ms_per_image	delta_ms
+attention (fused MHA)	4.2788	8.1426	+3.8638
+norm	0.0090	0.0078	-0.0012
+conv	0.2105	0.2004	-0.0101
+myelin block	0.0431	0.0227	-0.0204
+other	5.4538	5.0854	-0.3684
+matmul / gemm	7.1622	6.1673	-0.9949
+#layers	216	248	
