@@ -50,6 +50,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import trt_bench as tb  # noqa: E402
 
 CLS, SEP, DOT = 101, 102, 1012
+_ORIG_MASKS = None
 
 
 def token_ids(phrases):
@@ -88,7 +89,13 @@ class GDino(torch.nn.Module):
         self.register_buffer("ids", token_ids(phrases))
         self.register_buffer("mask", torch.ones_like(self.ids))
         self.register_buffer("types", torch.zeros_like(self.ids))
-        tsam, pos = gd.generate_masks_with_special_tokens_and_transfer_map(self.ids)   # workaround 1
+        # workaround 1. Keep the ORIGINAL function: the patch below replaces it
+        # module-wide, and the next engine (a different phrase count) must not be
+        # handed this prompt's masks.
+        global _ORIG_MASKS
+        if _ORIG_MASKS is None:
+            _ORIG_MASKS = gd.generate_masks_with_special_tokens_and_transfer_map
+        tsam, pos = _ORIG_MASKS(self.ids)
         self.register_buffer("tsam", tsam)
         self.register_buffer("pos", pos)
         gd.generate_masks_with_special_tokens_and_transfer_map = lambda _ids: (self.tsam, self.pos)
