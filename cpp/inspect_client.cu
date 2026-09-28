@@ -384,6 +384,17 @@ static void run_camera(const Opts o, int cam, clk::time_point t_start, Stats* st
   // let in-flight stage-3 requests finish before the regions go away
   const auto drain = clk::now() + std::chrono::seconds(10);
   for (auto& s : slots) while (s->busy.load() && clk::now() < drain) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+  // Unregister every region, after the measured window. Left registered, the
+  // server keeps each run's GPU buffers mapped (CUDA IPC) after this process
+  // exits, and they pile up across a sweep's runs.
+  c->UnregisterCudaSharedMemory("s1i_" + tag);
+  c->UnregisterCudaSharedMemory("s1o_" + tag);
+  c->UnregisterCudaSharedMemory("s2i_" + tag);
+  for (size_t i = 0; i < outs2.size(); ++i) c->UnregisterCudaSharedMemory("s2o" + std::to_string(i) + "_" + tag);
+  if (use_s3) {
+    c3->UnregisterCudaSharedMemory("s3i_" + tag);
+    for (size_t i = 0; i < slots[0]->outs.size(); ++i) c3->UnregisterCudaSharedMemory("s3o" + std::to_string(i) + "_" + tag);
+  }
   cudaStreamDestroy(stream);
 }
 

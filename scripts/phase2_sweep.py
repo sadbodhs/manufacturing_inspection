@@ -81,7 +81,16 @@ def configs(sweep):
                        s3_size=384 if s3in == "crop" else 800)
 
 
+def clear_shm():
+    """Safety net between runs: drop any CUDA shm registration a previous client
+    left behind (the client unregisters its own; a crashed one would not)."""
+    import urllib.request
+    req = urllib.request.Request("http://localhost:8100/v2/cudasharedmemory/unregister", method="POST", data=b"")
+    urllib.request.urlopen(req, timeout=10).read()
+
+
 def run_one(c, duration, seed):
+    clear_shm()
     cmd = CLIENT + ["--streams", str(c["streams"]), "--k", str(c["k"]), "--s2-size", "256",
                     "--stage1", c["stage1"], "--stage2", c["stage2"], "--stage3", c["stage3"],
                     "--p", str(c["p"]), "--duration", str(duration), "--seed", str(seed)]
