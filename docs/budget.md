@@ -65,12 +65,28 @@ that lands behind one 30 ms Grounding DINO execution waits for it. The fix for t
 tail is a shorter execution: send the crop, not the frame
 ([under live load](the-line.md#does-the-rare-heavy-stage-slow-the-fast-path)).
 
-**The bucket's burst cap matters at low flag rates.** With the cap set to 100 ms of
-wall time, a 10% budget holds about one crop's worth of tokens. Flags arrive in bursts
-(several crops of one frame at once), so at *p* = 5% tokens that overflow the cap are
-wasted, and crops were served 27% below budget. At *p* = 20%, with a steady supply of
-flags, service was within 2–11% of budget ÷ cost. A production bucket should size its
-burst to at least one frame's worth of crops.
+## Size the burst to one frame's crops
+
+With the bucket's cap set to 100 ms of wall time, a 10% budget holds about one crop's
+worth of tokens. Flags arrive in bursts (several crops of one frame at once), so at a
+low flag rate tokens that overflow the cap are wasted: crops were served 27% below
+budget at 4 cameras and 14% below at 8. At *p* = 20%, with a steady supply of flags,
+service was within 2–11% of budget ÷ cost.
+
+A follow-up sweep tested the obvious fix, a burst of one frame's crops (*K* × cost),
+at 8 cameras and a 10% budget (3 repeats, predictions committed first):
+
+| 8 cameras, 10% budget | default burst | burst = one frame's crops |
+|---|---:|---:|
+| crop, *p* = 5%: served vs budget ÷ cost | 9.07/s (−14%) | **10.64/s (±0%)** |
+| crop, *p* = 20% | −2% | ±0% |
+| frame, *p* = 5% / 20% | −5% / −3% | −1% / −1% |
+| frames delivered | 99.8–100% | 99.9–100% |
+| fast-path p99, crop, *p* = 5% | 20.6 ms | 22.8 ms (+11%) |
+
+**It works**: stage 3 is served exactly on budget, every frame still gets through, and
+the fast path's tail grows 11%. A production bucket should size its burst to at least
+one frame's crops.
 
 ## What was predicted
 
@@ -82,3 +98,5 @@ Written after [under live load](the-line.md), before this sweep ran:
 | C2 | Above the ~15% headroom the collapse returns: 20% at the edge, 40% collapses; at 4 cameras every budget holds | 20%: 98.6–99.7% delivered, p99 58–269 ms; 40%: 73–81%; 4 cameras all hold | **held** |
 | C3 | A budget fixes the collapse, not the tail: with frames admitted, p99 ≥ ~30 ms at 4 cameras | 26–29 ms at every budget | **held in substance** |
 | C4 | Stage 3 served at ~budget ÷ cost (within 15%); explain latency in tens of ms | within 2–11% at *p* = 20%, 27% under at *p* = 5%; 17–56 ms | **mostly held** |
+| E1 | A burst of one frame's crops brings service at *p* = 5% within 10% of budget ÷ cost, frames ≥ 99.9% delivered, p99 up ≤ 20% | ±0%; 99.9%; +11% | **held** |
+| E2 | At *p* = 20% the burst size changes service by < 5% | ≤ 2% | **held** |

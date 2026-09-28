@@ -52,11 +52,34 @@ operations instead of one fused kernel. At 8 cameras it is on the edge of overlo
 tail), where the client-driven line has half its frame period to spare. Its capacity
 at *K* = 4 is 22% lower.
 
-A likely contributor, **not verified here**: each of the four Python instances is its
-own process with its own CUDA context (four ~320 MB processes appear on the GPU while
-it runs), and separate CUDA contexts time-slice the GPU rather than share it. The
-companion study measured that kind of contention between processes, and that
-[MPS removes it](https://sadbodhs.github.io/computer_vision_optimization/contention/).
+## Correction: it is not the CUDA contexts
+
+This page first offered an unverified explanation: each of the four Python instances
+is its own process with its own CUDA context (four ~320 MB processes appear on the
+GPU), and separate contexts time-slice the GPU. **A follow-up sweep refutes it.** The
+same BLS model was run with 1, 2 and 4 Python instances (K = 4, 3 repeats each,
+predictions committed first):
+
+| BLS, K = 4 | 1 instance | 2 instances | 4 instances | client-driven |
+|---|---:|---:|---:|---:|
+| 1 camera, p50 | 7.14 ms | 7.05 ms | 7.10 ms | 5.57 ms |
+| 4 cameras, p99 | 10.08 ms | 9.28 ms | 9.36 ms | 7.72 ms |
+| 8 cameras, frames delivered | 83% | 90% | **96%** | 100% |
+| 8 cameras, p99 | 3.0 s | 1.6 s | **0.58 s** | 16 ms |
+
+At one camera the instance count changes nothing (under 0.1 ms), so the single-camera
+penalty has nothing to do with how many contexts exist. Under load, **more instances
+hold more**, not less: four beat two, and two beat one. Extra processes add capacity;
+they do not time-slice it away.
+
+What the data supports is simpler: every BLS request pays a fixed cost in the Python
+backend (crossing between the server and a Python process for each inner call, plus
+post-processing as several small torch operations instead of one fused kernel).
+Parallel instances hide part of that cost under load. Nothing hides it at one camera.
+
+(The single-camera numbers in this follow-up are about 0.7–1.0 ms higher than in the
+first sweep, for both arms alike. That is session-to-session variation; comparisons on
+this page are always between arms measured in the same session.)
 
 At *K* = 16 the gap shrinks to 10% at one camera and 9% in capacity: stage 2's
 batch of 16 dominates the frame, so the orchestration overhead is a smaller share.
@@ -78,3 +101,5 @@ unchanged, and the commit says so.
 | D1 | At 1 camera BLS is faster by 0.3–1.0 ms (K=4) | 1.18 ms **slower** | **failed** |
 | D2 | Under load BLS loses 10–30% of capacity at K=4 | −22% (7.7 vs 9.8 cameras) | **held** |
 | D3 | At K=16 the arms differ by < 10% at 1 camera | +10.4% | **failed**, narrowly |
+| F1 | At 1 camera the instance count changes BLS p50 by < 0.3 ms | 0.09 ms spread | **held** |
+| F2 | At 8 cameras 2 instances hold at least as well as 4; 1 saturates first | 1 saturates first, but 4 hold clearly better than 2 | **failed**: more instances add capacity |

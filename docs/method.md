@@ -78,10 +78,12 @@ ran; the commit history shows the order. Every page scores its predictions, and 
 of them failed in some way. One pre-registration was committed late: [Inside Triton](bls.md)'s predictions were
 written before its model ran, but committed after one smoke run that already
 contradicted one of them; they were committed unchanged, and the commit says so.
-Three corrections were made during the work and are recorded where they happened: the recall reference on
+Four corrections were made during the work and are recorded where they happened: the recall reference on
 [faster embedding search](embedding-search.md#a-correction-made-during-the-run), the
-mask workaround bug on [Grounding DINO](stage3.md#it-converts-with-one-workaround), and
-the export-versus-weights confound on [big models](big-models.md#weights-do-not-matter-the-export-does).
+mask workaround bug on [Grounding DINO](stage3.md#it-converts-with-one-workaround),
+the export-versus-weights confound on [big models](big-models.md#weights-do-not-matter-the-export-does),
+and an explanation for the BLS slowdown that a follow-up sweep refuted
+([inside Triton](bls.md#correction-it-is-not-the-cuda-contexts)).
 
 ## Reproduce
 
