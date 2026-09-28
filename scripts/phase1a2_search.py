@@ -170,7 +170,14 @@ def main():
         idx = torch.randperm(bank_all.shape[0], device=DEV)[:n]
         bank = bank_all[idx].contiguous()
         bank16 = bank.half()
-        ev_d, ev_i = exact_nn(bank16, q_eval.half())
+        # Reference = FP32 exact search (FAISS flat). The first run used the FP16
+        # brute force as the reference and found it disagrees with FP32 on 1-2% of
+        # nearest neighbours (near-ties flipped by FP16 rounding), so FP16 is itself
+        # an approximation here and is scored like one. First run: *_run1.tsv.
+        ref_ix = faiss.GpuIndexFlatL2(res, 1536)
+        ref_ix.add(bank)
+        rd, ri = ref_ix.search(q_eval, 1)
+        ev_d, ev_i = rd.view(-1).clamp(min=0).sqrt(), ri.view(-1)
         ev_score = image_scores(ev_d, 1024)
 
         def fidelity(d, i):
@@ -180,11 +187,13 @@ def main():
             err = ((image_scores(d, 1024) - ev_score).abs() / ev_score).mean().item() * 100
             return rec, err
 
-        # exact: torch fp16 brute force
+        # brute force in PyTorch FP16 (the in-engine method, unfused), scored against FP32
+        td, ti = exact_nn(bank16, q_eval.half())
+        rec16, err16 = fidelity(td ** 2, ti)
         for qn, (q, _) in queries.items():
             q16 = q.half()
             rows.append(dict(method="torch_fp16", bank=n, queries=qn, nq=q.shape[0], param="",
-                             ms=gpu_time(lambda: exact_nn(bank16, q16)), recall1=1.0, score_err_pct=0.0))
+                             ms=gpu_time(lambda: exact_nn(bank16, q16)), recall1=rec16, score_err_pct=err16))
 
         # exact: FAISS flat, FP32 and FP16
         for name, fp16 in (("faiss_flat", False), ("faiss_flat16", True)):

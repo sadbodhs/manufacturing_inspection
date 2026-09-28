@@ -1,0 +1,1 @@
+{"faiss": "1.14.1", "torch": "2.14.0+cu130", "cagra": true, "bank_patches": 112640, "bank_images": 110}
