@@ -1,0 +1,4 @@
+name: "yolov8s"
+platform: "tensorrt_plan"
+max_batch_size: 0
+instance_group [ { count: 2 kind: KIND_GPU } ]

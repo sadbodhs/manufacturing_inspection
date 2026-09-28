@@ -1,0 +1,5 @@
+name: "s2_prio"
+platform: "tensorrt_plan"
+max_batch_size: 16
+instance_group [ { count: 1 kind: KIND_GPU } ]
+optimization { priority: PRIORITY_MAX }

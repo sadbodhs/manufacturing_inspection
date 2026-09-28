@@ -1,0 +1,5 @@
+name: "yolov8s_prio"
+platform: "tensorrt_plan"
+max_batch_size: 0
+instance_group [ { count: 2 kind: KIND_GPU } ]
+optimization { priority: PRIORITY_MAX }
