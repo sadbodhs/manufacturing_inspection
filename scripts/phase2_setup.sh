@@ -57,6 +57,10 @@ put s3_crop  "$ROOT/triton/engines/s3_crop.plan"  'max_batch_size: 0
 instance_group [ { count: 1 kind: KIND_GPU } ]'
 put s3_frame "$ROOT/triton/engines/s3_frame.plan" 'max_batch_size: 0
 instance_group [ { count: 1 kind: KIND_GPU } ]'
+# Phase 4: the fast path as one server-side request (Python backend, BLS)
+mkdir -p "$MR/inspect_bls/1"
+cp "$ROOT/triton/bls/model.py" "$MR/inspect_bls/1/model.py"
+cp "$ROOT/triton/bls/config.pbtxt" "$MR/inspect_bls/config.pbtxt"
 
 # 3) the same preprocessed frames the companion repo's paced clients replay
 mkdir -p "$ROOT/data"
@@ -72,7 +76,7 @@ for i in $(seq 1 60); do
   curl -sf localhost:8100/v2/health/ready >/dev/null && break; sleep 2
 done
 curl -sf localhost:8100/v2/health/ready >/dev/null || { docker logs --tail 40 mi-triton; exit 1; }
-for m in yolov8s yolov8s_prio s2 s2_db0 s2_prio s3_crop s3_frame; do
+for m in yolov8s yolov8s_prio s2 s2_db0 s2_prio s3_crop s3_frame inspect_bls; do
   printf '%-14s %s\n' $m "$(curl -s -o /dev/null -w %{http_code} localhost:8100/v2/models/$m/ready)"
 done
 

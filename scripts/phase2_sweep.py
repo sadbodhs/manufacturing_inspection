@@ -20,7 +20,7 @@ Model names in the mi-triton repository (scripts/phase2_setup.sh):
   s3_crop, s3_frame                stage 3 at 384 / 800
 
 Run on the host, under the GPU lock (scripts/phase2_run.sh holds it).
-Usage: python3 scripts/phase2_sweep.py A|B|C [--duration 15] [--repeats 3]
+Usage: python3 scripts/phase2_sweep.py A|B|C|D [--duration 15] [--repeats 3]
 
 PREDICTIONS (written 2026-09-28, before the server or client had run; from the
 engine rows of Phases 1a and 1c)
@@ -71,6 +71,21 @@ From sweep A the fast path alone uses ~41% of the GPU at 4 cameras and ~82% at 8
       execution above the no-stage-3 p99, whatever the budget.
   C4  Stage 3 is served at ~budget/cost: ~10.6/s crops or ~3.4/s frames per
       10% (within 15%), and explain latency falls from seconds to tens of ms.
+
+PHASE 4, SWEEP D (written 2026-09-28, before the BLS model had run)
+
+The fast path as ONE server-side request per frame (Triton BLS, Python backend,
+4 instances): stage 1, its post-processing and NMS, the crops (roi_align) and
+stage 2, all on the GPU inside the server, against the client-driven line
+(two gRPC calls; post and crops on the client). p = 0. Arms client/bls x
+cameras 1/4/8/16 x K 4/16 x 3 repeats = 48 runs.
+
+  D1  At 1 camera BLS is faster: one round trip instead of two, and no host
+      sync for the post: p50 lower by 0.3-1.0 ms at K=4 (client ~5.6 ms).
+  D2  Under load BLS loses: Python's per-request work and four instances cap
+      it, so its capacity at K=4 is 10-30% below the client-driven ~9.8
+      cameras and its p99 at 8 cameras is higher.
+  D3  At K=16 the arms differ by < 10% at 1 camera: stage 2 dominates the frame.
 """
 import argparse
 import itertools
@@ -90,6 +105,11 @@ def configs(sweep):
         for cams, k, db in itertools.product((1, 4, 8, 16), (1, 4, 16), ("off", "db0")):
             yield dict(streams=cams, k=k, batching=db, stage1="yolov8s",
                        stage2="s2_db0" if db == "db0" else "s2", stage3="none", p=0.0)
+    elif sweep == "D":
+        # Phase 4: the fast path driven by the client (two gRPC calls, post and
+        # crops on the client side) vs one server-side BLS request per frame.
+        for arm, cams, k in itertools.product(("client", "bls"), (1, 4, 8, 16), (4, 16)):
+            yield dict(arm=arm, streams=cams, k=k, stage1="yolov8s", stage2="s2", stage3="none", p=0.0)
     elif sweep == "C":
         # Phase 3: stage 3 under a GPU-time budget. Costs are Phase 1c's measured
         # GPU medians for Grounding DINO-T, 10 phrases, text cached.
@@ -125,6 +145,8 @@ def run_one(c, duration, seed):
                     "--p", str(c["p"]), "--duration", str(duration), "--seed", str(seed)]
     if c["stage3"] != "none":
         cmd += ["--s3-input", c["s3_input"], "--s3-size", str(c["s3_size"])]
+    if c.get("arm") == "bls":
+        cmd += ["--bls", "inspect_bls"]
     if c.get("budget"):
         cmd += ["--s3-budget", str(c["budget"]), "--s3-cost-ms", str(c["s3_cost_ms"])]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 120)
@@ -136,7 +158,7 @@ def run_one(c, duration, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("sweep", choices=["A", "B", "C"])
+    ap.add_argument("sweep", choices=["A", "B", "C", "D"])
     ap.add_argument("--duration", type=float, default=15)
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--pause", type=float, default=3)

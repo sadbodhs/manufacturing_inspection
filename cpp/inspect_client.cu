@@ -173,6 +173,7 @@ static std::vector<char> g_frame_buf;   // frames.bin, loaded once, read-only
 
 struct Opts {
   std::string url = "localhost:8101", stage1 = "yolov8s", stage2 = "", stage3 = "none";
+  std::string bls = "";   // Phase 4: one server-side request per frame (Triton BLS model)
   std::string file = "frames.bin", s3_input = "crop", phase = "random";
   int streams = 1, k = 4, s2_size = 256, s3_size = 384, s3_slots = 4;
   double fps = 30, duration = 15, warmup = 1, p = 0;
@@ -242,6 +243,19 @@ static void run_camera(const Opts o, int cam, clk::time_point t_start, Stats* st
   tc::InferRequestedOutput* s1o; CHECK_OK(tc::InferRequestedOutput::Create(&s1o, "output0"));
   CHECK_OK(s1o->SetSharedMemory("s1o_" + tag, S1_OUT, 0));
   tc::InferOptions opt1(o.stage1);
+
+  // --- Phase 4 (BLS): one request per frame carries the frame (same shm region)
+  // and the K crop boxes; the server runs stage 1, the post, the crops and stage 2.
+  tc::InferInput* bls_img = nullptr; tc::InferInput* bls_boxes = nullptr;
+  tc::InferRequestedOutput* bls_score = nullptr;
+  if (!o.bls.empty()) {
+    CHECK_OK(tc::InferInput::Create(&bls_img, "images", {1, 3, IMG, IMG}, "FP32"));
+    CHECK_OK(bls_img->SetSharedMemory("s1i_" + tag, S1_IN, 0));
+    CHECK_OK(tc::InferInput::Create(&bls_boxes, "boxes", {o.k, 4}, "FP32"));
+    CHECK_OK(tc::InferRequestedOutput::Create(&bls_score, "score"));
+  }
+  tc::InferOptions optb(o.bls.empty() ? o.stage1 : o.bls);
+  std::vector<float> box_buf(4 * o.k);
 
   // --- stage 2 regions: one input of batch K, outputs from metadata ---
   IOSpec in2; std::vector<IOSpec> outs2;
@@ -324,6 +338,31 @@ static void run_camera(const Opts o, int cam, clk::time_point t_start, Stats* st
     if (now < due) std::this_thread::sleep_until(due);
     else if (now - due > std::chrono::milliseconds(1) && due_s >= o.warmup) st->late++;
     const bool rec = due_s >= o.warmup;
+
+    if (!o.bls.empty()) {
+      CUDA_CHECK(cudaMemcpyAsync(s1_in, g_frame_buf.data() + fi * S1_IN, S1_IN, cudaMemcpyHostToDevice, stream));
+      CUDA_CHECK(cudaStreamSynchronize(stream));
+      for (int j = 0; j < o.k; ++j) {   // the same seeded boxes as the client-driven path
+        float side = (float)(IMG * (0.25 + 0.25 * u01(o.seed, cam, k, j, 1)));
+        box_buf[4 * j + 0] = (float)((IMG - side) * u01(o.seed, cam, k, j, 2));
+        box_buf[4 * j + 1] = (float)((IMG - side) * u01(o.seed, cam, k, j, 3));
+        box_buf[4 * j + 2] = side; box_buf[4 * j + 3] = side;
+      }
+      CHECK_OK(bls_boxes->Reset());
+      CHECK_OK(bls_boxes->AppendRaw(reinterpret_cast<const uint8_t*>(box_buf.data()), box_buf.size() * sizeof(float)));
+      auto tb0 = clk::now();
+      tc::InferResult* rb; CHECK_OK(c->Infer(&rb, optb, {bls_img, bls_boxes}, {bls_score})); delete rb;
+      auto tb1 = clk::now();
+      if (rec) {
+        std::lock_guard<std::mutex> lk(st->mtx);
+        st->fast.push_back(std::chrono::duration<double, std::milli>(tb1 - due).count());
+        st->t_s1 += std::chrono::duration<double, std::milli>(tb1 - tb0).count();   // the whole server call
+        st->n++;
+      }
+      st->frames++;
+      fi = (fi + 1) % n_frames;
+      continue;
+    }
 
     // stage 1: the frame arrives in the shm region, the locator runs, B2's post
     CUDA_CHECK(cudaMemcpyAsync(s1_in, g_frame_buf.data() + fi * S1_IN, S1_IN, cudaMemcpyHostToDevice, stream));
@@ -439,6 +478,7 @@ int main(int argc, char** argv) {
     else if (a == "--stage1") o.stage1 = nx();
     else if (a == "--stage2") o.stage2 = nx();
     else if (a == "--stage3") o.stage3 = nx();
+    else if (a == "--bls") o.bls = nx();
     else if (a == "--file") o.file = nx();
     else if (a == "--s3-input") o.s3_input = nx();
     else if (a == "--phase") o.phase = nx();
@@ -481,14 +521,14 @@ int main(int argc, char** argv) {
   std::sort(st.fast.begin(), st.fast.end());
   std::sort(st.explain.begin(), st.explain.end());
   double sn = st.n ? st.n : 1;
-  printf("{\"pipeline\":\"inspect\",\"stage1\":\"%s\",\"stage2\":\"%s\",\"stage3\":\"%s\","
+  printf("{\"pipeline\":\"%s\",\"stage1\":\"%s\",\"stage2\":\"%s\",\"stage3\":\"%s\","
          "\"streams\":%d,\"k\":%d,\"s2_size\":%d,\"p\":%.3f,\"s3_input\":\"%s\",\"s3_size\":%d,"
          "\"fps_per_camera\":%.1f,\"offered_fps\":%.1f,\"frames\":%ld,\"fps\":%.2f,\"late_frames\":%ld,"
          "\"fast_ms_p50\":%.3f,\"fast_ms_p95\":%.3f,\"fast_ms_p99\":%.3f,\"fast_ms_max\":%.3f,"
          "\"flagged\":%ld,\"s3_sent\":%ld,\"s3_done\":%ld,\"s3_skipped\":%ld,\"s3_shed\":%ld,\"s3_budget\":%.3f,"
          "\"explain_ms_p50\":%.3f,\"explain_ms_p95\":%.3f,\"explain_ms_p99\":%.3f,"
          "\"stages_ms\":{\"stage1\":%.3f,\"crop\":%.3f,\"stage2\":%.3f},\"seed\":%u,\"phase\":\"%s\"}\n",
-         o.stage1.c_str(), o.stage2.c_str(), o.stage3.c_str(), o.streams, o.k, o.s2_size, o.p,
+         o.bls.empty() ? "inspect" : "inspect_bls", o.stage1.c_str(), o.stage2.c_str(), o.stage3.c_str(), o.streams, o.k, o.s2_size, o.p,
          o.s3_input.c_str(), o.s3_size, o.fps, o.fps * o.streams, st.frames.load(),
          st.frames.load() / elapsed, st.late.load(),
          pct(st.fast, 0.5), pct(st.fast, 0.95), pct(st.fast, 0.99), st.fast.empty() ? 0 : st.fast.back(),
