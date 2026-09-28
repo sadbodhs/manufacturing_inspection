@@ -33,10 +33,15 @@ class Engine:
 
     export(onnx_path) writes the ONNX and returns the parameter count. If the
     build fails and fallback_batch is set, the phase script is asked for that
-    batch instead (e.g. SAM-H at batch 8 -> 4 when it does not fit)."""
-    def __init__(self, model, size, batch, export, weights="random", fallback=None):
+    batch instead (e.g. SAM-H at batch 8 -> 4 when it does not fit).
+
+    flags are extra trtexec build flags (e.g. an FP16 output binding); set
+    out_elem_bytes to 2 when they make the outputs FP16, so out_bytes is right."""
+    def __init__(self, model, size, batch, export, weights="random", fallback=None,
+                 flags=(), out_elem_bytes=4):
         self.model, self.size, self.batch = model, size, batch
         self.export, self.weights, self.fallback = export, weights, fallback
+        self.flags, self.out_elem_bytes = list(flags), out_elem_bytes
 
     @property
     def tag(self):
@@ -52,8 +57,8 @@ def _outs(log):
     return re.findall(r"Output binding for \S+ with dimensions ([\dx]+) is created", log)
 
 
-def _fp32_bytes(dims):
-    n = 4
+def _out_bytes(dims, elem=4):
+    n = elem
     for d in dims.split("x"):
         n *= int(d)
     return n
@@ -71,7 +76,7 @@ def build(e, work):
         print("%-26s EXPORT_FAILED %s" % (e.tag, str(ex).splitlines()[0][:160]), flush=True)
         shutil.rmtree(d, ignore_errors=True)
         return None
-    r = subprocess.run([TRTEXEC, "--onnx=" + onnx_path, "--fp16", "--saveEngine=" + plan],
+    r = subprocess.run([TRTEXEC, "--onnx=" + onnx_path, "--fp16", "--saveEngine=" + plan] + e.flags,
                        capture_output=True, text=True)
     log = r.stdout + r.stderr
     shutil.rmtree(d, ignore_errors=True)
@@ -128,7 +133,7 @@ def run(engines, work, raw_tsv, sum_tsv, fallback_factory=None):
                 continue
             med = {k: statistics.median(v[k] for v in vs) for k in ("qps", "gpu", "h2d", "d2h")}
             out = vs[0]["out"]
-            ob = sum(_fp32_bytes(x) for x in out.split(";") if x)
+            ob = sum(_out_bytes(x, e.out_elem_bytes) for x in out.split(";") if x)
             ne = med["h2d"] + med["d2h"]
             f.write("%s\t%dx3x%dx%d\t%d\t%s\t%s\t%d\t%d\t%d\t%d\t%.1f\t%.4f\t%.4f\t%.4f\t%.4f"
                     "\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f\n"

@@ -2,7 +2,7 @@
 # Run one phase's timing script inside the triton-server container, holding
 # the GPU lock, and copy its two result files into results/.
 #
-#   scripts/run_phase.sh <phase_script.py> <result_name>
+#   scripts/run_phase.sh <phase_script.py> <result_name> [extra args for the script]
 #   e.g. scripts/run_phase.sh phase0_big_models.py phase0_batching
 #   -> results/phase0_batching.tsv (medians) + results/phase0_batching_raw.tsv
 #
@@ -21,10 +21,13 @@ trap '"$ROOT/scripts/gpu_lock.sh" release inspection; docker exec $C rm -rf $W |
 
 docker exec $C rm -rf $W
 docker exec $C mkdir -p $W
-docker cp "$ROOT/scripts/trt_bench.py" $C:$W/
-docker cp "$ROOT/scripts/$SCRIPT" $C:$W/
-docker exec $C python3 $W/$SCRIPT $W/work $W/raw.tsv $W/summary.tsv
+for f in "$ROOT"/scripts/*.py; do docker cp "$f" $C:$W/; done   # phases share model builders
+docker exec $C python3 $W/$SCRIPT $W/work $W/raw.tsv $W/summary.tsv "${@:3}"
 mkdir -p "$ROOT/results"
 docker cp $C:$W/raw.tsv "$ROOT/results/${NAME}_raw.tsv"
 docker cp $C:$W/summary.tsv "$ROOT/results/${NAME}.tsv"
+# any further TSVs a phase writes beside its summary keep their own names
+for f in $(docker exec $C sh -c "ls $W/*.tsv"); do
+  case "$(basename "$f")" in raw.tsv|summary.tsv) ;; *) docker cp "$C:$f" "$ROOT/results/";; esac
+done
 column -t -s $'\t' "$ROOT/results/${NAME}.tsv" | cut -c1-230
