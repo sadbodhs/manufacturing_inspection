@@ -1,0 +1,77 @@
+site_name: Manufacturing inspection on one GPU
+site_description: What a label-free visual inspection line costs to serve, measured on an RTX 3090
+repo_url: https://github.com/sadbodhs/manufacturing_inspection
+repo_name: sadbodhs/manufacturing_inspection
+docs_dir: docs
+
+theme:
+  name: material
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.top
+    - navigation.sections
+    - content.code.copy
+    - toc.follow
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-night
+        name: Dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: teal
+      accent: teal
+      toggle:
+        icon: material/weather-sunny
+        name: Light mode
+
+extra:
+  social:
+    - icon: material/home
+      link: https://sadbodhs.github.io/
+      name: Sadbodh — the bench
+    - icon: material/speedometer
+      link: https://sadbodhs.github.io/computer_vision_optimization/
+      name: The companion serving study
+    - icon: fontawesome/brands/github
+      link: https://github.com/sadbodhs/manufacturing_inspection
+      name: This repository
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight
+  - pymdownx.superfences
+  - pymdownx.details
+
+nav:
+  - ← Sadbodh · the bench: https://sadbodhs.github.io/
+  - The problem:
+    - Overview: index.md
+    - Method: method.md
+  - Stage 2, judging every part:
+    - Which encoders: encoders.md
+    - Map or score: dense-output.md
+    - PatchCore's search: patchcore-search.md
+    - Faster embedding search: embedding-search.md
+  - Stage 3, explaining the rare flag:
+    - Do big models batch: big-models.md
+    - Grounding DINO on TensorRT: stage3.md
+  - The whole line:
+    - Under live load: the-line.md
+
+plugins:
+  - search
+
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
