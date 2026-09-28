@@ -1,0 +1,12 @@
+# Model binaries: GPU/driver-specific, and every phase regenerates its own
+*.plan
+*.engine
+*.onnx
+*.pt
+*.cache
+__pycache__/
+*.pyc
+# MkDocs build output
+site/
+_site/
+site_src/
