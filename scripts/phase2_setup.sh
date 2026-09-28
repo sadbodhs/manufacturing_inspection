@@ -61,6 +61,13 @@ instance_group [ { count: 1 kind: KIND_GPU } ]'
 mkdir -p "$MR/inspect_bls/1"
 cp "$ROOT/triton/bls/model.py" "$MR/inspect_bls/1/model.py"
 cp "$ROOT/triton/bls/config.pbtxt" "$MR/inspect_bls/config.pbtxt"
+# Phase 4b: the same model with 1 and 2 Python instances (inspect_bls has 4)
+for n in 1 2; do
+  mkdir -p "$MR/inspect_bls$n/1"
+  cp "$ROOT/triton/bls/model.py" "$MR/inspect_bls$n/1/model.py"
+  sed -e "s/^name: \"inspect_bls\"/name: \"inspect_bls$n\"/" -e "s/count: 4/count: $n/" \
+    "$ROOT/triton/bls/config.pbtxt" > "$MR/inspect_bls$n/config.pbtxt"
+done
 
 # 3) the same preprocessed frames the companion repo's paced clients replay
 mkdir -p "$ROOT/data"
@@ -76,7 +83,7 @@ for i in $(seq 1 60); do
   curl -sf localhost:8100/v2/health/ready >/dev/null && break; sleep 2
 done
 curl -sf localhost:8100/v2/health/ready >/dev/null || { docker logs --tail 40 mi-triton; exit 1; }
-for m in yolov8s yolov8s_prio s2 s2_db0 s2_prio s3_crop s3_frame inspect_bls; do
+for m in yolov8s yolov8s_prio s2 s2_db0 s2_prio s3_crop s3_frame inspect_bls inspect_bls1 inspect_bls2; do
   printf '%-14s %s\n' $m "$(curl -s -o /dev/null -w %{http_code} localhost:8100/v2/models/$m/ready)"
 done
 

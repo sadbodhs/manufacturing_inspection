@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Turn results/phase2_sweep{A,B,C,D}.jsonl into per-configuration medians.
+"""Turn results/phase2_sweep{A..F}.jsonl into per-configuration medians.
 
 Each configuration ran 3 times in an interleaved order; this reports the
 median of each metric across the repeats, plus the spread of the fast-path
 p99 (min-max), and flags any run that errored or delivered less than 95% of
 the offered frames (overloaded: its latencies are backlog, not service time).
 
-Usage: python3 scripts/phase2_summarize.py [A] [B] [C] [D]
-Output: results/phase2_sweep{A,B,C,D}.tsv
+Usage: python3 scripts/phase2_summarize.py [A] [B] [C] [D] [E] [F]
+Output: results/phase2_sweep{A..F}.tsv
 """
 import json
 import os
@@ -19,13 +19,15 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KEYS = {"A": ["streams", "k", "batching"],
         "B": ["streams", "p", "priority", "s3_input"],
         "C": ["streams", "p", "s3_input", "budget"],
-        "D": ["arm", "streams", "k"]}
+        "D": ["arm", "streams", "k"],
+        "E": ["p", "s3_input", "burst"],
+        "F": ["arm", "streams"]}
 METRICS = ["fps", "fast_ms_p50", "fast_ms_p95", "fast_ms_p99", "late_frames",
            "flagged", "s3_sent", "s3_done", "s3_skipped", "s3_shed", "explain_ms_p50", "explain_ms_p99"]
 
 
 def main():
-    for sweep in (sys.argv[1:] or ["A", "B", "C", "D"]):
+    for sweep in (sys.argv[1:] or ["A", "B", "C", "D", "E", "F"]):
         src = os.path.join(ROOT, "results", "phase2_sweep%s.jsonl" % sweep)
         if not os.path.exists(src):
             continue

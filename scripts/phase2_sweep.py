@@ -20,7 +20,7 @@ Model names in the mi-triton repository (scripts/phase2_setup.sh):
   s3_crop, s3_frame                stage 3 at 384 / 800
 
 Run on the host, under the GPU lock (scripts/phase2_run.sh holds it).
-Usage: python3 scripts/phase2_sweep.py A|B|C|D [--duration 15] [--repeats 3]
+Usage: python3 scripts/phase2_sweep.py A|B|C|D|E|F [--duration 15] [--repeats 3]
 
 PREDICTIONS (written 2026-09-28, before the server or client had run; from the
 engine rows of Phases 1a and 1c)
@@ -86,6 +86,24 @@ cameras 1/4/8/16 x K 4/16 x 3 repeats = 48 runs.
       it, so its capacity at K=4 is 10-30% below the client-driven ~9.8
       cameras and its p99 at 8 cameras is higher.
   D3  At K=16 the arms differ by < 10% at 1 camera: stage 2 dominates the frame.
+
+FOLLOW-UPS (written 2026-09-28, after sweeps C and D, before E and F ran)
+
+Sweep E (Phase 3b): 8 cameras, 10% budget, burst default vs one frame's crops
+(4 x cost); p 5/20% x crop/frame x 3 repeats = 24 runs.
+  E1  Sizing the burst to one frame's crops lifts stage-3 service at p = 5% to
+      within 10% of budget/cost (it was 27% under for crops), with every frame
+      still delivered (>= 99.9%) and fast-path p99 up by no more than 20%.
+  E2  At p = 20% the burst size changes stage-3 service by < 5%.
+
+Sweep F (Phase 4b): BLS with 1, 2 or 4 Python instances vs client-driven,
+cameras 1/4/8, K = 4, x 3 repeats = 36 runs. Tests the page's unverified
+explanation (separate CUDA contexts time-slicing the GPU).
+  F1  At 1 camera the instance count changes BLS p50 by < 0.3 ms: the 1.2 ms
+      single-camera penalty is Python/IPC overhead, not context switching,
+      since only one instance is busy.
+  F2  At 8 cameras 2 instances hold at least as well as 4 (p99 no worse) and 1
+      instance saturates first: extra contexts add no capacity.
 """
 import argparse
 import itertools
@@ -105,6 +123,19 @@ def configs(sweep):
         for cams, k, db in itertools.product((1, 4, 8, 16), (1, 4, 16), ("off", "db0")):
             yield dict(streams=cams, k=k, batching=db, stage1="yolov8s",
                        stage2="s2_db0" if db == "db0" else "s2", stage3="none", p=0.0)
+    elif sweep == "E":
+        # Phase 3b: the budget's burst allowance, default (100 ms of wall time)
+        # vs one frame's crops (K x cost), at the 10% budget that held 8 cameras.
+        for p, s3in, burst in itertools.product((0.05, 0.20), ("crop", "frame"), ("default", "frame")):
+            cost = 9.43 if s3in == "crop" else 29.60
+            yield dict(streams=8, k=4, p=p, priority="off", s3_input=s3in, budget=0.10, burst=burst,
+                       stage1="yolov8s", stage2="s2", stage3="s3_crop" if s3in == "crop" else "s3_frame",
+                       s3_size=384 if s3in == "crop" else 800, s3_cost_ms=cost,
+                       s3_burst_ms=4 * cost if burst == "frame" else 0)
+    elif sweep == "F":
+        # Phase 4b: Python BLS instance count, to test the CUDA-context explanation.
+        for arm, cams in itertools.product(("client", "bls1", "bls2", "bls4"), (1, 4, 8)):
+            yield dict(arm=arm, streams=cams, k=4, stage1="yolov8s", stage2="s2", stage3="none", p=0.0)
     elif sweep == "D":
         # Phase 4: the fast path driven by the client (two gRPC calls, post and
         # crops on the client side) vs one server-side BLS request per frame.
@@ -145,8 +176,12 @@ def run_one(c, duration, seed):
                     "--p", str(c["p"]), "--duration", str(duration), "--seed", str(seed)]
     if c["stage3"] != "none":
         cmd += ["--s3-input", c["s3_input"], "--s3-size", str(c["s3_size"])]
-    if c.get("arm") == "bls":
+    if c.get("arm") in ("bls", "bls4"):
         cmd += ["--bls", "inspect_bls"]
+    elif c.get("arm") in ("bls1", "bls2"):
+        cmd += ["--bls", "inspect_" + c["arm"]]
+    if c.get("s3_burst_ms"):
+        cmd += ["--s3-burst-ms", str(c["s3_burst_ms"])]
     if c.get("budget"):
         cmd += ["--s3-budget", str(c["budget"]), "--s3-cost-ms", str(c["s3_cost_ms"])]
     r = subprocess.run(cmd, capture_output=True, text=True, timeout=duration + 120)
@@ -158,7 +193,7 @@ def run_one(c, duration, seed):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("sweep", choices=["A", "B", "C", "D"])
+    ap.add_argument("sweep", choices=["A", "B", "C", "D", "E", "F"])
     ap.add_argument("--duration", type=float, default=15)
     ap.add_argument("--repeats", type=int, default=3)
     ap.add_argument("--pause", type=float, default=3)

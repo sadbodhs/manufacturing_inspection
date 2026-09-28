@@ -18,3 +18,5 @@ cpp/build/
 
 # Phase 4: setup copies triton/bls/model.py into the model repository
 triton/models/inspect_bls/1/
+triton/models/inspect_bls1/1/
+triton/models/inspect_bls2/1/

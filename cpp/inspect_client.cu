@@ -178,6 +178,7 @@ struct Opts {
   int streams = 1, k = 4, s2_size = 256, s3_size = 384, s3_slots = 4;
   double fps = 30, duration = 15, warmup = 1, p = 0;
   double s3_budget = 0, s3_cost_ms = 0;   // Phase 3: stage-3 share of GPU time (0 = no budget)
+  double s3_burst_ms = 0;                 // Phase 3b: bucket capacity override (0 = 100 ms of wall time)
   unsigned seed = 1;
 };
 
@@ -489,6 +490,7 @@ int main(int argc, char** argv) {
     else if (a == "--s3-slots") o.s3_slots = std::stoi(nx());
     else if (a == "--s3-budget") o.s3_budget = std::stod(nx());
     else if (a == "--s3-cost-ms") o.s3_cost_ms = std::stod(nx());
+    else if (a == "--s3-burst-ms") o.s3_burst_ms = std::stod(nx());
     else if (a == "--fps") o.fps = std::stod(nx());
     else if (a == "--duration") o.duration = std::stod(nx());
     else if (a == "--warmup") o.warmup = std::stod(nx());
@@ -500,7 +502,8 @@ int main(int argc, char** argv) {
     if (o.s3_cost_ms <= 0) { std::cerr << "--s3-budget needs --s3-cost-ms" << std::endl; return 2; }
     g_budget.on = true;
     g_budget.rate_ms_per_s = o.s3_budget * 1000.0;
-    g_budget.cap_ms = std::max(o.s3_cost_ms, 0.1 * g_budget.rate_ms_per_s);
+    g_budget.cap_ms = o.s3_burst_ms > 0 ? std::max(o.s3_cost_ms, o.s3_burst_ms)
+                                        : std::max(o.s3_cost_ms, 0.1 * g_budget.rate_ms_per_s);
     g_budget.tokens_ms = g_budget.cap_ms;
   }
   if (o.s3_input != "crop" && o.s3_input != "frame") { std::cerr << "--s3-input crop|frame" << std::endl; return 2; }
