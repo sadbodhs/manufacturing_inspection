@@ -269,9 +269,80 @@ def line_b():
     save(fig, "line-b.png")
 
 
+def line_c():
+    rows = tsv("phase2_sweepC.tsv")
+    fig, axes = plt.subplots(2, 2, figsize=(12, 7.2), sharex=True)
+    xs = {"0.0": 0, "0.1": 1, "0.2": 2, "0.4": 3}
+    for col_i, s3 in enumerate(("crop", "frame")):
+        for row_i, cams in enumerate(("4", "8")):
+            ax = axes[row_i][col_i]
+            for p, col, lab in (("0.05", BLUE, "flag rate 5%"), ("0.2", ACCENT, "flag rate 20%")):
+                pts = sorted((xs[r["budget"]], f(r, "fast_ms_p99"), r["overloaded"]) for r in rows
+                             if r["s3_input"] == s3 and r["streams"] == cams and r["p"] == p)
+                ax.plot([q[0] for q in pts], [q[1] for q in pts], color=col, marker="o", ms=7, lw=2,
+                        markeredgecolor="white", markeredgewidth=1.5, label=lab)
+                for x, yv, ov in pts:
+                    if ov == "yes":
+                        ax.scatter([x], [yv], s=170, facecolor="none", edgecolor=col, linewidth=1.5, zorder=4)
+            ax.set_yscale("log")
+            ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: "%g" % v))
+            ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+            ax.axhline(33.3, color=GREY, ls="--", lw=1.2)
+            ax.text(0.02, 33.3, "one frame period (33 ms)", transform=ax.get_yaxis_transform(), va="bottom",
+                    fontsize=8.5, color=MUTED)
+            lo, hi = ax.get_ylim()
+            ax.set_ylim(min(lo, 20), hi)   # keep the 33 ms line inside every panel
+            ax.set_xticks([0, 1, 2, 3]); ax.set_xticklabels(["none", "10%", "20%", "40%"])
+            ax.set_title("%s cameras, stage 3 on the %s" % (cams, "crop (384)" if s3 == "crop" else "frame (800)"),
+                         loc="left", fontsize=11)
+            grid(ax, "y")
+            if row_i == 1:
+                ax.set_xlabel("stage-3 budget, share of GPU time")
+            if col_i == 0:
+                ax.set_ylabel("fast path p99, ms")
+    axes[0][0].legend(frameon=False, loc="upper right", fontsize=9.5)
+    fig.suptitle("A GPU-time budget for stage 3 keeps the line whole, if it fits the headroom (ringed: overloaded)",
+                 x=0.01, ha="left", fontsize=12)
+    save(fig, "line-c.png")
+
+
+def line_d():
+    rows = tsv("phase2_sweepD.tsv")
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+    for ax, k in zip(axes, ("4", "16")):
+        for arm, col, lab in (("client", BLUE, "client-driven (2 gRPC calls, post on the client)"),
+                              ("bls", ACCENT, "inside Triton (1 request, Python BLS)")):
+            pts = sorted((int(r["streams"]), f(r, "fast_ms_p99"), r["overloaded"]) for r in rows
+                         if r["k"] == k and r["arm"] == arm)
+            ax.plot([q[0] for q in pts], [q[1] for q in pts], color=col, marker="o", ms=7, lw=2,
+                    markeredgecolor="white", markeredgewidth=1.5, label=lab)
+            for x, yv, ov in pts:
+                if ov == "yes":
+                    ax.scatter([x], [yv], s=170, facecolor="none", edgecolor=col, linewidth=1.5, zorder=4)
+        ax.axhline(33.3, color=GREY, ls="--", lw=1.2)
+        ax.text(0.02, 33.3, "one frame period (33 ms)", transform=ax.get_yaxis_transform(), va="bottom",
+                fontsize=8.5, color=MUTED)
+        ax.set_yscale("log"); ax.set_xscale("log", base=2)
+        ax.yaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: "%g" % v))
+        ax.yaxis.set_minor_formatter(matplotlib.ticker.NullFormatter())
+        ax.set_xticks([1, 4, 8, 16]); ax.set_xticklabels(["1", "4", "8", "16"])
+        ax.set_xlabel("cameras at 30 fps")
+        ax.set_title("K = %s crops per frame" % k, loc="left", fontsize=11)
+        grid(ax, "y")
+    axes[0].set_ylabel("fast path p99, ms (log)")
+    axes[0].legend(frameon=False, loc="upper left", fontsize=9)
+    fig.suptitle("Moving the pipeline into Triton: slower at every load, and it saturates sooner (ringed: overloaded)",
+                 x=0.01, ha="left", fontsize=12)
+    save(fig, "line-d.png")
+
+
 if __name__ == "__main__":
     encoders(); big_models(); patchcore_search(); embedding_search(); stage3()
     if os.path.exists(os.path.join(RES, "phase2_sweepA.tsv")):
         line_a()
     if os.path.exists(os.path.join(RES, "phase2_sweepB.tsv")):
         line_b()
+    if os.path.exists(os.path.join(RES, "phase2_sweepC.tsv")):
+        line_c()
+    if os.path.exists(os.path.join(RES, "phase2_sweepD.tsv")):
+        line_d()

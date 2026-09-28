@@ -86,5 +86,7 @@ and each page scores them, including the ones that failed.
 | [Do big models batch](big-models.md) | Does batching flagged crops help stage 3? | It depends on the architecture, not the size: RT-DETR saves 38%, SAM-B gets 14% *slower*. Random weights time the same as pretrained; the export path moves SAM by 9%. |
 | [Grounding DINO on TensorRT](stage3.md) | Does stage 3 convert, and what does it cost? | Converts with one workaround. ~10 ms per crop, ~30 ms per frame; phrases are nearly free up to 10; caching the text saves 0.5 ms. |
 | [Under live load](the-line.md) | The whole line with virtual 30 fps cameras | One 3090 inspects ~10 cameras at 4 parts per frame, within 10% of the engine arithmetic. Triton's batcher adds nothing; a frame's crops are already the batch. Stage 3 hurts twice: a 30 ms execution sets the fast path's tail, and past the GPU budget the line collapses. Stream priority trims the tail by a quarter to a third and cannot prevent the collapse. |
+| [Budgeting stage 3](budget.md) | Can stage 3 be stopped from collapsing the line? | Yes: a GPU-time budget that fits the headroom (10% at 8 cameras) delivers every frame at any flag rate, and explanations in ~50 ms instead of seconds. It cannot fix the tail; only a shorter stage-3 execution can. |
+| [Inside Triton (BLS)](bls.md) | Is the pipeline faster run inside the server? | No: as one Python BLS request per frame it is 1.2 ms slower and holds 22% fewer cameras than the client-driven line. |
 
 How it was measured, and how to reproduce it: [method](method.md).

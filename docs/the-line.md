@@ -118,8 +118,9 @@ Two things do **not** protect the line:
   long.
 
 **For a deployment:** send stage 3 the crop, not the frame; cap its share of the GPU by
-budget rather than by queue length; and treat priority as a tail trim, not a safety
-net. If stage 3 must see whole frames, or the flag rate cannot be bounded, give it its
+budget rather than by queue length ([measured on the next page](budget.md): a budget that
+fits the headroom keeps the line whole); and treat priority as a tail trim, not a
+safety net. If stage 3 must see whole frames, or the flag rate cannot be bounded, give it its
 own GPU.
 
 ## What was predicted

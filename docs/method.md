@@ -75,8 +75,10 @@ shared with the other studies.
 
 Each phase's predictions were written into its script and committed before the phase
 ran; the commit history shows the order. Every page scores its predictions, and most
-of them failed in some way. Three corrections were made during the work and are
-recorded where they happened: the recall reference on
+of them failed in some way. One pre-registration was committed late: [Inside Triton](bls.md)'s predictions were
+written before its model ran, but committed after one smoke run that already
+contradicted one of them; they were committed unchanged, and the commit says so.
+Three corrections were made during the work and are recorded where they happened: the recall reference on
 [faster embedding search](embedding-search.md#a-correction-made-during-the-run), the
 mask workaround bug on [Grounding DINO](stage3.md#it-converts-with-one-workaround), and
 the export-versus-weights confound on [big models](big-models.md#weights-do-not-matter-the-export-does).

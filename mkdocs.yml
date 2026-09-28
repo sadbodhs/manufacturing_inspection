@@ -66,6 +66,8 @@ nav:
     - Grounding DINO on TensorRT: stage3.md
   - The whole line:
     - Under live load: the-line.md
+    - Budgeting stage 3: budget.md
+    - Inside Triton (BLS): bls.md
 
 plugins:
   - search

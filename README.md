@@ -24,8 +24,11 @@ flagged ones.
 | Do big models gain from batching? | By architecture, not size: RT-DETR −38%, SAM-B +14%. Weights do not change timing; the export path moved SAM by 9%. |
 | Does Grounding DINO convert, and what does it cost? | One workaround; ~10 ms a crop, ~30 ms a frame. |
 | The whole line, live | ~10 cameras per 3090 at 4 parts per frame, within 10% of the arithmetic. Stage 3 sets the tail and, past the GPU budget, collapses the line; priority does not prevent it. |
+| Can stage 3 be kept from collapsing the line? | A GPU-time budget within the headroom (10% at 8 cameras) keeps every frame flowing; it cannot fix the tail. |
+| Is the pipeline faster inside Triton (Python BLS)? | No: 1.2 ms slower per frame and 22% less capacity than driving it from the client. |
 
-Every phase's predictions were committed before it ran; the pages score them.
+Every phase's predictions were written before it ran and committed before its
+measurement (one was committed after a smoke run, and says so); the pages score them.
 
 ## Layout
 
