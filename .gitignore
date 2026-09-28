@@ -15,3 +15,6 @@ site_src/
 triton/engines/
 data/
 cpp/build/
+
+# Phase 4: setup copies triton/bls/model.py into the model repository
+triton/models/inspect_bls/1/
