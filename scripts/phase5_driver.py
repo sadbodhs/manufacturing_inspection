@@ -87,8 +87,11 @@ def run_one(method, bank, rep):
     base = statistics.median(used_mb() for _ in range(50))
     s = Sampler(); s.start(); time.sleep(0.3)
     t_start = time.monotonic()
+    env = dict(os.environ)
+    if method.startswith("cpu_"):
+        env["PYTHONPATH"] = "/opt/fcpu"   # faiss-cpu: multi-threaded OpenBLAS (see phase5_worker.py)
     p = subprocess.run([sys.executable, WORKER, method, str(bank), str(rep)],
-                       capture_output=True, text=True, timeout=3600)
+                       capture_output=True, text=True, timeout=3600, env=env)
     time.sleep(0.3); s.stop = True; s.join()
     marks = [json.loads(l) for l in p.stdout.splitlines() if l.startswith("{")]
     rec = dict(method=method, bank=bank, rep=rep, rc=p.returncode, base_mb=base,

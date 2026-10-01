@@ -22,6 +22,10 @@ Methods
   cagra                cuVS CAGRA, graph degree 32, itopk 64 / 128
   cpu_flat             FAISS IndexFlatL2 on 8 CPU threads (exact), no GPU
   cpu_ivf              FAISS IndexIVFFlat on 8 CPU threads, nprobe 32, no GPU
+                       Both run the faiss-cpu wheel (PYTHONPATH=/opt/fcpu, set by
+                       the driver): the faiss-gpu wheel's bundled OpenBLAS 0.3.3
+                       runs single-threaded (8.7 s vs 1.39 s for a 200k flat
+                       search on 8 threads), which stalled the first sweep.
 
 PREDICTIONS (written 2026-10-01, before any worker ran; prep had built only
 features, references and TensorRT engines)
@@ -238,8 +242,10 @@ def cpu_s():
 
 
 def latency(fn, warm=5, reps=50, budget=8.0):
-    for _ in range(warm):
-        fn(); sync()
+    t = time.perf_counter(); fn(); sync()
+    if time.perf_counter() - t < 1.0:          # calls over 1 s (CPU search at 1M) warm once
+        for _ in range(warm - 1):
+            fn(); sync()
     ts, t0 = [], time.perf_counter()
     while len(ts) < reps and (len(ts) < 5 or time.perf_counter() - t0 < budget):
         t = time.perf_counter(); fn(); sync(); ts.append((time.perf_counter() - t) * 1000)
@@ -260,6 +266,18 @@ def window(fn, secs, period=None):
     wall = time.perf_counter() - t0
     return n / wall, (cpu_s() - c0) / wall
 
+
+if os.environ.get("NCU"):
+    # S1b: one search call per crop, inside a profiler range, for Nsight Compute
+    # (ncu --profile-from-start off). Deployable setting only: the last param.
+    setp(params[-1])
+    for s in shapes:
+        fn = search(s)
+        for _ in range(3):
+            fn(); sync()
+        torch.cuda.cudart().cudaProfilerStart(); fn(); sync(); torch.cuda.cudart().cudaProfilerStop()
+        mark("ncu", tag="%s:%s" % (params[-1], s))
+    sys.exit(0)
 
 for p in params:
     setp(p)
