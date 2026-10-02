@@ -61,6 +61,7 @@ nav:
     - Map or score: dense-output.md
     - PatchCore's search: patchcore-search.md
     - Faster embedding search: embedding-search.md
+    - What search costs the GPU: search-footprint.md
   - Stage 3, explaining the rare flag:
     - Do big models batch: big-models.md
     - Grounding DINO on TensorRT: stage3.md

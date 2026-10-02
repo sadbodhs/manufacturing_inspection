@@ -21,6 +21,7 @@ flagged ones.
 | Send the anomaly map back, or reduce it in the graph? | Barely matters (≤ 2%); a plain FP16 output beats reducing in the graph for reconstruction. |
 | PatchCore: backbone or memory-bank search? | Below ~8k patches, searching inside the engine is cheaper than not searching; past ~20k the bank sets the cost. |
 | Do FAISS or cuVS search the bank faster? | No: TensorRT's brute force beats every index with recall ≥ 0.9 by 4× or more. |
+| What does each search method cost the GPU? | TensorRT brute force is lightest up to ~100k patches; FAISS adds 1.55 GB of scratch; at 1M IVF-PQ holds 2.0 GB and CAGRA stays at 16 ms; nvidia-smi utilization cannot tell them apart. |
 | Do big models gain from batching? | By architecture, not size: RT-DETR −38%, SAM-B +14%. Weights do not change timing; the export path moved SAM by 9%. |
 | Does Grounding DINO convert, and what does it cost? | One workaround; ~10 ms a crop, ~30 ms a frame. |
 | The whole line, live | ~10 cameras per 3090 at 4 parts per frame, within 10% of the arithmetic. Stage 3 sets the tail and, past the GPU budget, collapses the line; priority does not prevent it. |

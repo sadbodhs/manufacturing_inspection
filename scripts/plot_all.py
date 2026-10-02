@@ -8,6 +8,7 @@
   stage3.png            Grounding DINO cost by phrases, text live vs cached
   line-a.png            (if present) fast-path p99 against cameras, per K
   line-b.png            (if present) fast-path p99 and stage-3 skips against flag rate
+  footprint-*.png       (if present) Phase 5: memory, time per crop, utilization vs busy time
 
 Colours: two validated series colours (blue, orange) and grey for references.
 Usage: python3 scripts/plot_all.py [repo_root]   (RESULTS_DIR overrides <root>/results)
@@ -336,6 +337,99 @@ def line_d():
     save(fig, "line-d.png")
 
 
+# ------------------------------------------------------------------ phase 5: search footprint
+P5_NAMES = {"trt_bf": "TensorRT brute force", "trt_bf512": "TensorRT brute force, 512 crop", "faiss_flat16": "FAISS flat FP16", "faiss_ivf": "FAISS IVF-Flat",
+            "faiss_ivfpq": "FAISS IVF-PQ", "cagra": "cuVS CAGRA", "cpu_flat": "CPU flat (8 threads)",
+            "cpu_ivf": "CPU IVF (8 threads)"}
+P5_SETTING = {"trt_bf": "", "faiss_flat16": "", "faiss_ivf": "32", "faiss_ivfpq": "32", "cagra": "128",
+              "cpu_flat": "", "cpu_ivf": "32"}
+AQUA = "#1baf7a"
+SEQ3 = ["#86b6ef", "#3987e5", "#184f95"]    # ordinal blue: 10k, 100k, 1M
+
+
+def footprint_memory():
+    rows = {(r["method"], r["bank"]): r for r in tsv("phase5_memory.tsv")}
+    gpu = ["trt_bf", "trt_bf512", "faiss_flat16", "faiss_ivfpq", "cagra", "faiss_ivf"]
+    fig, axes = plt.subplots(1, 2, figsize=(12, 4.2), sharey=True)
+    for ax, bank in zip(axes, ("100000", "1000000")):
+        for y, m in enumerate(gpu):
+            r = rows.get((m, bank))
+            if not r or not r["resident_mb"]:
+                ax.text(0.1, y, "cannot be built: 4,096 x 1M distances\nexceed TensorRT's 2^31-element tensor limit",
+                        va="center", fontsize=9, color=MUTED)
+                continue
+            ctx, res = f(r, "ctx_mb") / 1024, f(r, "resident_mb") / 1024
+            srch = max(float(r[k] or 0) for k in ("search_peak_256_mb", "search_peak_512_mb")) / 1024
+            build = f(r, "build_peak_mb") / 1024
+            ax.barh(y, ctx, color=GREY, height=0.62, edgecolor="white", linewidth=2)
+            ax.barh(y, res - ctx, left=ctx, color=BLUE, height=0.62, edgecolor="white", linewidth=2)
+            if srch > res:
+                ax.barh(y, srch - res, left=res, color=ACCENT, height=0.62, edgecolor="white", linewidth=2)
+            if build > max(res, srch) + 0.05:
+                ax.plot([build, build], [y - 0.38, y + 0.38], color=INK, lw=1.6)
+            top = max(res, srch, build)
+            ax.text(top + 0.25, y, "%.1f GB" % max(res, srch), va="center", fontsize=9.5, color=INK)
+        ax.set_yticks(range(len(gpu))); ax.set_yticklabels([P5_NAMES[m] for m in gpu])
+        ax.invert_yaxis()
+        ax.set_xlim(0, 16.5); ax.set_xticks([0, 4, 8, 12, 16])
+        ax.set_xlabel("GPU memory, GB")
+        ax.set_title("%s-patch bank" % ("100k" if bank == "100000" else "1M"), loc="left", fontsize=11)
+        grid(ax, "x")
+    handles = [Patch(color=GREY, label="CUDA context"), Patch(color=BLUE, label="held while idle (bank, index, library scratch)"),
+               Patch(color=ACCENT, label="extra while searching"), Line2D([], [], color=INK, lw=1.6, label="peak while building")]
+    fig.legend(handles=handles, frameon=False, fontsize=9.5, loc="lower center", ncol=4, bbox_to_anchor=(0.5, -0.06))
+    fig.suptitle("What each method holds on the GPU (one 256 or 512 crop per call; labels: largest of idle and search)",
+                 x=0.01, ha="left", fontsize=12)
+    save(fig, "footprint-memory.png")
+
+
+def footprint_speed():
+    rows = [r for r in tsv("phase5_speed.tsv") if r["crop"] == "256" and r["param"] == P5_SETTING.get(r["method"], "x")]
+    order = ["trt_bf", "faiss_ivfpq", "cagra", "faiss_flat16", "faiss_ivf", "cpu_ivf", "cpu_flat"]
+    fig, ax = plt.subplots(figsize=(11, 4.4))
+    for y, m in enumerate(order):
+        pts = {r["bank"]: f(r, "ms") for r in rows if r["method"] == m}
+        xs = [pts[b] for b in ("10000", "100000", "1000000") if b in pts]
+        ax.plot(xs, [y] * len(xs), color=GRID, lw=3, zorder=1)
+        for c, b in zip(SEQ3, ("10000", "100000", "1000000")):
+            if b in pts:
+                ax.scatter([pts[b]], [y], s=70, color=c, edgecolor="white", linewidth=2, zorder=3)
+        if "1000000" in pts:
+            ax.text(pts["1000000"] * 1.25, y, "%g ms" % float("%.3g" % pts["1000000"]), va="center", fontsize=9, color=INK)
+    ax.axvline(33.3, color=MUTED, lw=1, ls="--")
+    ax.text(33.3 * 1.05, -0.55, "one 30 fps frame (33 ms)", fontsize=9, color=MUTED)
+    ax.set_xscale("log")
+    ax.xaxis.set_major_formatter(matplotlib.ticker.FuncFormatter(lambda v, _: "%g" % v))
+    ax.set_yticks(range(len(order))); ax.set_yticklabels([P5_NAMES[m] for m in order])
+    ax.set_xlabel("ms per 256 crop (log)")
+    handles = [Line2D([], [], marker="o", ls="", color=c, markersize=8, label=l)
+               for c, l in zip(SEQ3, ("10k bank", "100k bank", "1M bank"))]
+    ax.legend(handles=handles, frameon=False, fontsize=9, loc="upper right")
+    ax.set_ylim(len(order) - 0.4, -0.9)
+    ax.set_title("Search time per crop as the bank grows (deployable setting of each method)", loc="left", fontsize=11.5)
+    grid(ax, "x")
+    save(fig, "footprint-speed.png")
+
+
+def footprint_util():
+    rows = [r for r in tsv("phase5_sweep.tsv")]
+    fig, ax = plt.subplots(figsize=(6.5, 5))
+    ax.plot([0, 100], [0, 100], color=GREY, lw=1.2, ls="--")
+    ax.scatter([f(r, "duty_pct") for r in rows], [f(r, "util_pct") for r in rows], s=40, color=BLUE,
+               edgecolor="white", linewidth=1.5, zorder=3, label="paced at 10 / 25 / 50% of max")
+    sp = [r for r in tsv("phase5_speed.tsv") if r["util_pct"] not in ("", "0") and r["method"] in P5_SETTING
+          and not r["method"].startswith("cpu")]
+    ax.scatter([100] * len(sp), [f(r, "util_pct") for r in sp], s=40, color=ACCENT, edgecolor="white",
+               linewidth=1.5, zorder=3, label="back to back")
+    ax.set_xlim(0, 105); ax.set_ylim(0, 105)
+    ax.set_xlabel("time the GPU is busy with search, % (rate x latency)")
+    ax.set_ylabel("nvidia-smi GPU utilization, %")
+    ax.set_title("nvidia-smi reports busy time, nothing more", loc="left", fontsize=11.5)
+    ax.legend(frameon=False, fontsize=9, loc="upper left")
+    grid(ax, "both")
+    save(fig, "footprint-util.png")
+
+
 if __name__ == "__main__":
     encoders(); big_models(); patchcore_search(); embedding_search(); stage3()
     if os.path.exists(os.path.join(RES, "phase2_sweepA.tsv")):
@@ -346,3 +440,5 @@ if __name__ == "__main__":
         line_c()
     if os.path.exists(os.path.join(RES, "phase2_sweepD.tsv")):
         line_d()
+    if os.path.exists(os.path.join(RES, "phase5_memory.tsv")):
+        footprint_memory(); footprint_speed(); footprint_util()

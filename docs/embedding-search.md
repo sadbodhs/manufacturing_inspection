@@ -58,6 +58,9 @@ reproduces exact search on real features, nothing about finding defects.
 | cuVS CAGRA, itopk 128 | 11.8 ms | 0.949 | 0.43% |
 
 \* The TensorRT engine was timed on random features, so its fidelity was not measured.
+*Measured later on [What search costs the GPU](search-footprint.md#time), with real
+features and a different 100k bank: recall@1 0.88, image-score error 0.18%. TensorRT
+runs the distance arithmetic itself in FP16, so it loses more near-ties than PyTorch.*
 It runs the same FP16 maths as the PyTorch row, which agrees with exact search on 97.6%
 of neighbours with a 0.02% score error.
 
@@ -113,3 +116,5 @@ these millisecond scales.
 | P2 | IVF-Flat nprobe 8: 5–20× faster than exact, recall ≥ 0.9, error < 1% | 4.6× faster than FAISS exact, recall 0.76, error 1.24% | **failed** |
 | P3 | IVF-PQ is the fastest FAISS option; recall < 0.8 but error < 5% | recall 0.22, error 3.7%; IVF nprobe 1 is faster | **partly held** |
 | P4 | At 10k none of it pays more than moving the features out (0.24 ms) | every library ≥ 0.29 ms; TensorRT adds 0.31 ms | **held** |
+
+Next: [what each of these methods costs in GPU memory and time](search-footprint.md), and which to use when.
