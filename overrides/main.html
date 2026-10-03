@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{#- A persistent link home on every page. The nav collapses into a drawer on
+    phones and narrow windows, and the footer is below the fold -- this bar is
+    always visible. Same bar as the serving study. -#}
+{% block announce %}
+<div class="bench-home">
+  <a href="https://sadbodhs.github.io/">&larr; Sadbodh &middot; the bench</a>
+  <span class="bench-sep">/</span>
+  <span>Manufacturing inspection</span>
+  <span class="bench-sep">&middot;</span>
+  <a href="https://sadbodhs.github.io/computer_vision_optimization/">CV serving study</a>
+</div>
+{% endblock %}
+
+{% block extrahead %}
+{{ super() }}
+<style>
+  .bench-home { font-size: .72rem; display: flex; flex-wrap: wrap; gap: .45rem;
+                align-items: center; }
+  .bench-home a { color: inherit; text-decoration: underline;
+                  text-underline-offset: 2px; font-weight: 600; }
+  .bench-home .bench-sep { opacity: .55; }
+</style>
+{% endblock %}
